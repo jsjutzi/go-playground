@@ -2,16 +2,11 @@ package main
 
 import (
 	"du-service/health"
+	"du-service/utils"
 	"fmt"
 	"log"
 	"net/http"
 )
-
-// type User struct {
-// 	firstName string
-// 	lastName  string
-// 	email     string
-// }
 
 func main() {
 	setupAPI()
@@ -23,45 +18,50 @@ func main() {
 }
 
 func setupAPI() {
-	manager := NewManager()
+	eventEmitter := utils.NewEventEmitter()
 
 	http.HandleFunc("/health", health.HealthCheckHandler)
-	http.HandleFunc("/ws", manager.serveWS)
+	http.HandleFunc("/import-users", importsHandler(eventEmitter))
 }
 
-// func testChan() {
-// 	var listOfUsers []User
+func importsHandler(eventEmitter *utils.EventEmitter) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        // Set headers for SSE
+        w.Header().Set("Content-Type", "text/event-stream")
+        w.Header().Set("Cache-Control", "no-cache")
+        w.Header().Set("Connection", "keep-alive")
 
-// 	newUser := User{firstName: "Jack", lastName: "Jutzi", email: "jacks email"}
-// 	newUser2 := User{firstName: "Bryce", lastName: "Hull", email: "bryces email"}
-// 	newUser3 := User{firstName: "Leighton", lastName: "Tidwell", email: "tidwells email"}
-// 	newUser4 := User{firstName: "Justin", lastName: "Knight", email: "knights email"}
-// 	newUser5 := User{firstName: "Tom", lastName: "Smith", email: "tommys email"}
+        // Subscribe to events
+        sub := eventEmitter.Subscribe()
+        defer eventEmitter.Unsubscribe(sub)
 
-// 	listOfUsers = append(listOfUsers, newUser)
-// 	listOfUsers = append(listOfUsers, newUser2)
-// 	listOfUsers = append(listOfUsers, newUser3)
-// 	listOfUsers = append(listOfUsers, newUser4)
-// 	listOfUsers = append(listOfUsers, newUser5)
+        // Write SSE events to the client
+        for event := range sub {
+            // Format the SSE event
+            message := "event: " + event.Name + "\n"
+            message += "data: " + event.Data + "\n\n"
 
-// 	var wg sync.WaitGroup
-// 	wg.Add(len(listOfUsers))
-// 	c := make(chan string)
+            // Write the message to the client
+            w.Write([]byte(message))
+            w.(http.Flusher).Flush()
+        }
 
-// 	for index, value := range listOfUsers {
-// 		go func(index int, value User) {
-// 			defer wg.Done()
-// 			c <- value.firstName
-// 		}(index, value)
-// 	}
+        // If this point is reached, it means the SSE subscription has ended
+        // Now handle the POST request body
+        if r.Method == http.MethodPost {
+            // Parse the request body
+            err := r.ParseForm()
+            if err != nil {
+                http.Error(w, "Failed to parse request body", http.StatusBadRequest)
+                return
+            }
 
-// 	go func() {
-// 		for message := range c {
-// 			println(message)
-// 		}
-// 	}()
-
-// 	wg.Wait() // Blocks thread until waitgroup counter is 0
-
-// 	close(c)
-// }
+            // Access form values from the request body
+            // Syntax r.Form.Get("fieldName")
+            // Process the form data accordingly
+            // Return a response
+            w.WriteHeader(http.StatusOK)
+            w.Write([]byte("POST request handled successfully"))
+        }
+    }
+}
