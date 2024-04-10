@@ -4,7 +4,9 @@ import (
 	"du-service/health"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
+	"time"
 )
 
 // type User struct {
@@ -23,10 +25,46 @@ func main() {
 }
 
 func setupAPI() {
-	manager := NewManager()
+	// manager := NewManager()
 
 	http.HandleFunc("/health", health.HealthCheckHandler)
-	http.HandleFunc("/ws", manager.serveWS)
+	http.HandleFunc("/import-users", importsHandler)
+}
+
+func importsHandler(w http.ResponseWriter, r *http.Request) {
+	eventsHandler(&w, r)
+}
+
+type responsedWriteWrapper struct {
+	http.ResponseWriter
+}
+
+func(rw *responsedWriteWrapper) WriteHeader(statusCode int) {
+	rw.ResponseWriter.WriteHeader(statusCode)
+}
+
+func eventsHandler(w *http.ResponseWriter, r *http.Request) {
+
+	rw := responsedWriteWrapper{*w}
+
+	rw.Header().Set("Access-Control-Allow-Origin", "*")
+	rw.Header().Set("Access-Control-Expose-Headers", "Content-Type")
+   
+	rw.Header().Set("Content-Type", "text/event-stream")
+	rw.Header().Set("Cache-Control", "no-cache")
+	rw.Header().Set("Connection", "keep-alive")
+
+	 // Simulate sending events (replace this with real data)
+		rw.Header().Set("Content-Type", "text/event-stream")
+	  
+	   // send a random number every 2 seconds
+	for {
+		rand.Seed(time.Now().UnixNano())
+		fmt.Fprintf(rw, "data: %d \n\n", rand.Intn(100))
+		flusher := rw.ResponseWriter.(http.Flusher) // Convert rw.ResponseWriter to http.Flusher interface
+		flusher.Flush()
+		time.Sleep(2 * time.Second)
+	}
 }
 
 // func testChan() {
