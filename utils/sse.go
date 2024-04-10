@@ -4,18 +4,89 @@ import (
 	"net/http"
 )
 
-// Utility function to send Server-Sent Events to subscribers
-func SendSSE(w http.ResponseWriter, event string, data string) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	// w.Header().Set("Access-Control-Allow-Origin", "*")
-	// w.Header().Set("Access-Control-Expose-Headers", "Content-Type")
+type Event struct {
+	Name string
+	Data string
+}
 
-	message := "event: " + event + "\n"
-	message += "data: " + data + "\n\n"
+type EventEmitter struct {
+	subscriptions map[chan Event]struct{} // map of subscribers to events
+	addChan chan chan Event // Channel through which channels can be passed, and the channels passed can pass events
+	removeChan chan chan Event
+	broadcastChan chan Event
+}
 
-	w.Write([]byte("event: " + event + "\n"))
-	w.Write([]byte("data: " + data + "\n\n"))
-	w.(http.Flusher).Flush()
+func NewEventEmitter() *EventEmitter {
+	emitter := &EventEmitter{
+		subscriptions: make(map[chan Event]struct{}),
+		addChan: make(chan chan Event),
+		removeChan: make(chan chan Event),
+		broadcastChan: make(chan Event),
+	}
+
+	go emitter.start()
+
+	return emitter
+}
+
+func (emitter *EventEmitter) start() {
+	for {
+		select {
+		case subscription := <-emitter.addChan:
+			emitter.subscriptions[subscription] = struct{}{}
+
+		case subscription := <-emitter.removeChan:
+			delete(emitter.subscriptions, subscription)
+
+		case subscription := <-emitter.removeChan:
+            delete(emitter.subscriptions, subscription)
+            close(subscription)
+			
+        case event := <-emitter.broadcastChan:
+            for sub := range emitter.subscriptions {
+                sub <- event
+            }
+        }
+	}
+}
+
+func (emitter *EventEmitter) Subscribe() chan Event {
+    subscription := make(chan Event)
+    emitter.addChan <- subscription
+    return subscription
+}
+
+func (emitter *EventEmitter) Unsubscribe(subscription chan Event) {
+    emitter.removeChan <- subscription
+}
+
+func (emitter *EventEmitter) Broadcast(event Event) {
+    emitter.broadcastChan <- event
+}
+
+
+
+// Utility function to emit Server-Sent Events to subscribers
+func EventHandler(emitter *EventEmitter) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        // Set headers for SSE
+        w.Header().Set("Content-Type", "text/event-stream")
+        w.Header().Set("Cache-Control", "no-cache")
+        w.Header().Set("Connection", "keep-alive")
+
+        // Subscribe to events
+        subscription := emitter.Subscribe()
+        defer emitter.Unsubscribe(subscription)
+
+        // Write SSE events to the client
+        for event := range subscription {
+            // Format the SSE event
+            message := "event: " + event.Name + "\n"
+            message += "data: " + event.Data + "\n\n"
+
+            // Write the message to the client
+            w.Write([]byte(message))
+            w.(http.Flusher).Flush()
+        }
+    }
 }
