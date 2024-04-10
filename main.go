@@ -20,6 +20,9 @@ func main() {
 func setupAPI() {
 	eventEmitter := utils.NewEventEmitter()
 
+	// Test worker pool
+	go testWorkerPool()
+
 	http.HandleFunc("/health", health.HealthCheckHandler)
 	http.HandleFunc("/import-users", importsHandler(eventEmitter))
 }
@@ -64,4 +67,23 @@ func importsHandler(eventEmitter *utils.EventEmitter) http.HandlerFunc {
             w.Write([]byte("POST request handled successfully"))
         }
     }
+}
+
+func testWorkerPool() {
+	// Create new tasks
+	tasks := make([]utils.Task, 20)
+
+	for i := 0; i < 20; i++ {
+		tasks[i] = utils.Task{ID: i}
+	}
+
+	// Create worker pool
+	wp := utils.WorkerPool{
+		Tasks:       tasks,
+		Concurrency: 5,
+	}
+
+	// Run the pool
+	wp.Run()
+	fmt.Println("All tasks completed")
 }
