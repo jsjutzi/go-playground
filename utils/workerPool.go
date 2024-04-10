@@ -1,56 +1,38 @@
 package utils
 
-import (
-	"fmt"
-	"sync"
-	"time"
-)
-
 // Task defninition
-// TODO: Add more fields to the task i.e. a function to execute
-type Task struct {
-	ID int
-}
-
-// Way to process tasks
-func (t *Task) Process() {
-	fmt.Printf("Processing task with ID: %d\n", t.ID)
-	time.Sleep(2 * time.Second)
-}
+type Task func(chan string)
 
 // Worker pool definition
 type WorkerPool struct {
-	Tasks []Task
-	Concurrency int
-	tasksChan chan Task
-	wg sync.WaitGroup
+	workerCount int
+	taskQueue chan Task
 }
 
-// Functions to execute worker pool
-func (wp *WorkerPool) worker() {
-	for task := range wp.tasksChan {
-		task.Process()
-		wp.wg.Done()
+// Create a new worker pool
+func NewWorkerPool(workerCount int, queueSize int) *WorkerPool {
+	return &WorkerPool{
+		workerCount: workerCount,
+		taskQueue: make(chan Task, queueSize),
 	}
 }
 
-func (wp *WorkerPool) Run() {
-	// Initialize the tasks channel
-	wp.tasksChan = make(chan Task, len(wp.Tasks))
-
-	// Start workers
-	for i := 0; i < wp.Concurrency; i++ {
+// Start the worker pool
+func (wp *WorkerPool) Start() {
+	// Create workerCount number of goroutines
+	for i := 0; i < wp.workerCount; i++ {
 		go wp.worker()
 	}
+}
 
-	// Send tasks to the channel
-	wp.wg.Add(len(wp.Tasks))
-	for _, task := range wp.Tasks {
-		wp.tasksChan <- task
-	}
+func (wp *WorkerPool) worker() {
+    for task := range wp.taskQueue {
+        responseChan := make(chan string)
+        task(responseChan)
+        close(responseChan)
+    }
+}
 
-	close(wp.tasksChan)
-
-	// Wait for all tasks to be processed
-	wp.wg.Wait()
+func (wp *WorkerPool) Submit(t Task) {
+	wp.taskQueue <- t
 }
