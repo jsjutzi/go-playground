@@ -2,6 +2,7 @@ package main
 
 import (
 	"du-service/health"
+	"du-service/importers"
 	"du-service/utils"
 	"fmt"
 	"log"
@@ -20,70 +21,28 @@ func main() {
 func setupAPI() {
 	// Create new event emitter
 	eventEmitter := utils.NewEventEmitter()
+	go eventEmitter.Start()
 
 	// Define worker pool - 20 workers, 500 task queue size
 	workerPool := utils.NewWorkerPool(20, 500)
 	workerPool.Start()
 
 	// Define routes
+
+	// Health check endpoint
 	http.HandleFunc("/health", health.HealthCheckHandler)
-	http.HandleFunc("/import-users", importsHandler(eventEmitter, workerPool))
-}
 
-func importsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Set headers for SSE
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+	// Bulk import endpoints
+	http.HandleFunc("/import-users-mp", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/import-users-cohort", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/import-users-license", importers.ImportsHandler(eventEmitter, workerPool))
 
-		// Subscribe to events
-		subscription := eventEmitter.Subscribe()
-		defer eventEmitter.Unsubscribe(subscription)
+	// Import Single User endpoints
+	http.HandleFunc("/remove-users-mp", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/remove-users-cohort", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/remove-users-license", importers.ImportsHandler(eventEmitter, workerPool))
 
-		// Write SSE events to the client
-		for event := range subscription {
-			// Format the SSE event
-			message := "event: " + event.Name + "\n"
-			message += "data: " + event.Data + "\n\n"
-
-			// Write the message to the client
-			w.Write([]byte(message))
-			w.(http.Flusher).Flush()
-		}
-
-		// If this point is reached, it means the SSE subscription has ended
-		// Now handle the POST request body
-		if r.Method == http.MethodPost {
-			// Parse the request body
-			err := r.ParseForm()
-			if err != nil {
-				http.Error(w, "Failed to parse request body", http.StatusBadRequest)
-				return
-			}
-
-			// Access form values from the request body
-			// Syntax r.Form.Get("fieldName")
-			// Process the form data accordingly
-			// Return a response
-			w.Write([]byte("POST request handled successfully"))
-		}
-
-		// Create channel for response
-		// responseChan := make(chan string) // TODO: change to event struct
-		
-		// Submit a task to the worker pool
-		wp.Submit(func(respChan chan string) { // Here too
-			// Logic to be executed by the worker
-			respChan <- "Event from worker"
-		})
-
-		// Wait for the response from the worker
-		// response := <-responseChan
-		
-		// Do things with the response
-
-		// Send status
-		w.WriteHeader(http.StatusOK)
-	}
+	// Bulk Removal Endpoints
+	http.HandleFunc("/remove-users-mp", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/revoke-users-license", importers.ImportsHandler(eventEmitter, workerPool))
 }

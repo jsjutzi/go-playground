@@ -24,19 +24,14 @@ func NewEventEmitter() *EventEmitter {
 		broadcastChan: make(chan Event),
 	}
 
-	go emitter.start()
-
 	return emitter
 }
 
-func (emitter *EventEmitter) start() {
+func (emitter *EventEmitter) Start() {
 	for {
 		select {
 		case subscription := <-emitter.addChan:
 			emitter.subscriptions[subscription] = struct{}{}
-
-		case subscription := <-emitter.removeChan:
-			delete(emitter.subscriptions, subscription)
 
 		case subscription := <-emitter.removeChan:
             delete(emitter.subscriptions, subscription)
