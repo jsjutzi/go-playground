@@ -31,12 +31,28 @@ type ImportError struct {
 
 func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
-		importErrors := make([]ImportError, 0)
-
-        // Initialize SSE headers...
+		// Establish SSE configurations
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
+
+		subscription := eventEmitter.Subscribe()
+		defer eventEmitter.Unsubscribe(subscription)
+
+		//  Listen for events to publish to the client
+		go func() {
+			for event := range subscription {
+				// Format the SSE event
+				message := "event: " + event.Name + "\n"
+				message += "data: " + event.Data + "\n\n"
+
+				// Write the message to the client
+				w.Write([]byte(message))
+				w.(http.Flusher).Flush()
+			}
+		}()
+
+		importErrors := make([]ImportError, 0)
 		
 		csvFilePath := "./importers/benchmark.csv"
 		importType := "mp"
@@ -72,8 +88,6 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
         for {
             line, err := csvReader.Read()
 
-			wg.Add(1)
-
             if err == io.EOF {
                 break // End of file
             }
@@ -82,6 +96,8 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
                 // Handle error: Reading failure
                 break
             }
+
+			wg.Add(1)
 
 			// Validate user has correct and valid inputs
             user, err := validateUser(line)
