@@ -2,6 +2,7 @@ package main
 
 import (
 	"du-service/health"
+	"du-service/importers"
 	"du-service/utils"
 	"fmt"
 	"log"
@@ -18,72 +19,29 @@ func main() {
 }
 
 func setupAPI() {
+	// Create new event emitter
 	eventEmitter := utils.NewEventEmitter()
+	go eventEmitter.Start()
 
-	// Test worker pool
-	go testWorkerPool()
+	// Define worker pool - 20 workers
+	workerPool := utils.NewWorkerPool(20)
 
+	// Define routes
+
+	// Health check endpoint
 	http.HandleFunc("/health", health.HealthCheckHandler)
-	http.HandleFunc("/import-users", importsHandler(eventEmitter))
-}
 
-func importsHandler(eventEmitter *utils.EventEmitter) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
-        // Set headers for SSE
-        w.Header().Set("Content-Type", "text/event-stream")
-        w.Header().Set("Cache-Control", "no-cache")
-        w.Header().Set("Connection", "keep-alive")
+	// Bulk import endpoints
+	http.HandleFunc("/import-users-mp", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/import-users-cohort", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/import-users-license", importers.ImportsHandler(eventEmitter, workerPool))
 
-        // Subscribe to events
-        sub := eventEmitter.Subscribe()
-        defer eventEmitter.Unsubscribe(sub)
+	// Import Single User endpoints
+	http.HandleFunc("/import-user-mp", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/import-user-cohort", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/import-user-license", importers.ImportsHandler(eventEmitter, workerPool))
 
-        // Write SSE events to the client
-        for event := range sub {
-            // Format the SSE event
-            message := "event: " + event.Name + "\n"
-            message += "data: " + event.Data + "\n\n"
-
-            // Write the message to the client
-            w.Write([]byte(message))
-            w.(http.Flusher).Flush()
-        }
-
-        // If this point is reached, it means the SSE subscription has ended
-        // Now handle the POST request body
-        if r.Method == http.MethodPost {
-            // Parse the request body
-            err := r.ParseForm()
-            if err != nil {
-                http.Error(w, "Failed to parse request body", http.StatusBadRequest)
-                return
-            }
-
-            // Access form values from the request body
-            // Syntax r.Form.Get("fieldName")
-            // Process the form data accordingly
-            // Return a response
-            w.WriteHeader(http.StatusOK)
-            w.Write([]byte("POST request handled successfully"))
-        }
-    }
-}
-
-func testWorkerPool() {
-	// Create new tasks
-	tasks := make([]utils.Task, 20)
-
-	for i := 0; i < 20; i++ {
-		tasks[i] = utils.Task{ID: i}
-	}
-
-	// Create worker pool
-	wp := utils.WorkerPool{
-		Tasks:       tasks,
-		Concurrency: 5,
-	}
-
-	// Run the pool
-	wp.Run()
-	fmt.Println("All tasks completed")
+	// Bulk Removal Endpoints
+	http.HandleFunc("/remove-users-mp", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/revoke-users-license", importers.ImportsHandler(eventEmitter, workerPool))
 }
