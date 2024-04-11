@@ -1,24 +1,31 @@
 package utils
 
 // Task defninition
-type Task func(chan string)
+type Task struct {
+	Func func() interface{}
+	Result chan interface{}
+}
 
 // Worker pool definition
 type WorkerPool struct {
 	workerCount int
-	taskQueue chan Task
+	TaskQueue chan Task
 }
 
 // Create a new worker pool
-func NewWorkerPool(workerCount int, queueSize int) *WorkerPool {
-	return &WorkerPool{
+func NewWorkerPool(workerCount int) *WorkerPool {
+	pool := &WorkerPool{
+		TaskQueue: make(chan Task),
 		workerCount: workerCount,
-		taskQueue: make(chan Task, queueSize),
 	}
+
+	pool.StartWorkers()
+
+	return pool
 }
 
 // Start the worker pool
-func (wp *WorkerPool) Start() {
+func (wp *WorkerPool) StartWorkers() {
 	// Create workerCount number of goroutines
 	for i := 0; i < wp.workerCount; i++ {
 		go wp.worker()
@@ -26,13 +33,12 @@ func (wp *WorkerPool) Start() {
 }
 
 func (wp *WorkerPool) worker() {
-    for task := range wp.taskQueue {
-        responseChan := make(chan string)
-        task(responseChan)
-        close(responseChan)
-    }
+    for task := range wp.TaskQueue {
+		result := task.Func()
+		task.Result <- result
+	}
 }
 
 func (wp *WorkerPool) Submit(t Task) {
-	wp.taskQueue <- t
+	wp.TaskQueue <- t
 }

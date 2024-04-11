@@ -23,9 +23,8 @@ func setupAPI() {
 	eventEmitter := utils.NewEventEmitter()
 	go eventEmitter.Start()
 
-	// Define worker pool - 20 workers, 500 task queue size
-	workerPool := utils.NewWorkerPool(20, 500)
-	workerPool.Start()
+	// Define worker pool - 20 workers
+	workerPool := utils.NewWorkerPool(20)
 
 	// Define routes
 
@@ -38,9 +37,9 @@ func setupAPI() {
 	http.HandleFunc("/import-users-license", importers.ImportsHandler(eventEmitter, workerPool))
 
 	// Import Single User endpoints
-	http.HandleFunc("/remove-users-mp", importers.ImportsHandler(eventEmitter, workerPool))
-	http.HandleFunc("/remove-users-cohort", importers.ImportsHandler(eventEmitter, workerPool))
-	http.HandleFunc("/remove-users-license", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/import-user-mp", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/import-user-cohort", importers.ImportsHandler(eventEmitter, workerPool))
+	http.HandleFunc("/import-user-license", importers.ImportsHandler(eventEmitter, workerPool))
 
 	// Bulk Removal Endpoints
 	http.HandleFunc("/remove-users-mp", importers.ImportsHandler(eventEmitter, workerPool))

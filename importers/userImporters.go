@@ -3,85 +3,194 @@ package importers
 import (
 	"du-service/utils"
 	"fmt"
+
+	// "fmt"
 	"net/http"
+	"strings"
+
+	// "time"
+	"encoding/csv"
+	"errors"
+	"io"
+	"os"
+	"sync"
 )
 
+type User struct {
+	id string
+	firstName string
+	lastName string
+	email string
+}
+
+type ImportError struct {
+	email string
+	errorType string
+	errorMessage string
+}
+
 func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// Set headers for SSE
+    return func(w http.ResponseWriter, r *http.Request) {
+		importErrors := make([]ImportError, 0)
+
+        // Initialize SSE headers...
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-
-		// Create a channel to signal when the handler exits
-		// This guarantees graceful exit of the handler
-		exit := make(chan struct{})
-		defer close(exit)
-
-		// Subscribe to events
-		subscription := eventEmitter.Subscribe()
-		defer eventEmitter.Unsubscribe(subscription)
-
-		// Test event emitter
-		eventEmitter.Broadcast(utils.Event{Name: "worker", Data: "Event from worker"})
-
-		// Write SSE events to the client
-		go func() {
-			select {
-			case event := <-subscription:
-				// Format the SSE event
-				message := "event: " + event.Name + "\n"
-				message += "data: " + event.Data + "\n\n"
-
-				// Write the message to the client
-				w.Write([]byte(message))
-				w.(http.Flusher).Flush()
-			case <-exit:
-				return
-			}
-		}()
-
-		eventEmitter.Broadcast(utils.Event{Name: "worker", Data: "2nd event from worker"})
-
-		if r.Method == http.MethodGet {
-			fmt.Println("GET request received")
 		
-			// Extract custom headers from the request
-			customHeader := r.Header.Get("X-Custom-Header")
+		csvFilePath := "./importers/benchmark.csv"
+		importType := "mp"
+		// csvFilePath := r.Header.Get("X-S3-Path")
+		// importName := r.Header.Get("X-Import-Name")
+		// importType := r.Header.Get("X-Import-Type")
+		// uploadId := r.Header.Get("X-Upload-Id")
+		// missionPartnerId := r.Header.Get("X-Mission-Partner-Id")
+		// groupId := r.Header.Get("X-Group-Id")
 
-			if customHeader != "" {
-				fmt.Println("Custom header value:", customHeader)
+		// Access upload record from dynamo
+		// Update status to processing
+
+        file, err := os.Open(csvFilePath)
+
+		// Handle error accessing the file
+        if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte("Error opening CSV file"))
+
+			// Update upload status to error
+			return
+        }
+
+        defer file.Close()
+
+        var wg sync.WaitGroup
+        csvReader := csv.NewReader(file)
+
+		// Define channel to receive results from worker pool
+		resultChan := make(chan interface{})
+
+        for {
+            line, err := csvReader.Read()
+
+			wg.Add(1)
+
+            if err == io.EOF {
+                break // End of file
+            }
+
+            if err != nil {
+                // Handle error: Reading failure
+                break
+            }
+
+			// Validate user has correct and valid inputs
+            user, err := validateUser(line)
+			// Increment the wait group counter
+			if err != nil {
+				// Handle error: Invalid user
+				importError := ImportError{
+					email: user.email,
+					errorType: "Invalid User",
+					errorMessage: err.Error(),
+				}
+
+				importErrors = append(importErrors, importError)
+				wg.Done()
+
+				continue
 			} else {
-				fmt.Println("Custom header not found")
+				task := utils.Task{
+					Func: func() interface{} {
+						// Decrement the wait group counter when the task is done
+						defer wg.Done()
+		
+						processUser(user, importType)
+		
+						// After processing, if condition met, emit SSE
+						if shouldEmitEvent(user) {
+							emitSSE(eventEmitter, utils.Event{
+								Name: "Progress Update",
+								Data: "50%",
+							})
+						}
+
+						return nil
+					},
+					Result: resultChan,
+				}
+				// Submit the user processing task to the worker pool
+				wp.Submit(task)
+
+				result := <-resultChan
+				fmt.Println(result)
 			}
-		
-			// Process the request further if needed
-			// You can access other request properties as needed
-			// For syntax:
-			// queryString := r.URL.Query().Get("paramName")
-		
-			// Return a response
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("GET request handled successfully"))
-		}
+        }
 
-		// Create channel for response
-		// responseChan := make(chan string) // TODO: change to event struct
+        // Wait for all processing to complete
+        wg.Wait()
 
-		// Submit a task to the worker pool
-		fmt.Println("Submitting task to worker pool")
-
-		wp.Submit(func(respChan chan string) { // Here too
-			// Logic to be executed by the worker
-			respChan <- "Event from worker"
+        // After all users are processed, emit a final SSE message
+        emitSSE(eventEmitter, utils.Event{
+			Name: "importComplete",
+			Data: "All users processed",
 		})
 
-		// Wait for the response from the worker
-		// response := <-responseChan
+		// Build downloadable report and upload to S3
 
-		// Do things with the response
+        // Response to client that the process is finished
+        w.WriteHeader(http.StatusOK)
+        w.Write([]byte("All users processed"))
+    }
+}
 
-		// Send status
-		w.WriteHeader(http.StatusOK)
+func validateUser(line []string) (User, error) {
+	// Implement user validation logic
+
+	// Validate user data - firstName, lastName, email
+	id := line[0]
+	firstName := strings.TrimSpace(line[1])
+	lastName:= strings.TrimSpace(line[2])
+	email := strings.TrimSpace(line[3])
+
+	var err error
+
+	if firstName == "" {
+		err = errors.New("first name is required")
+	} else if lastName == "" {
+		err = errors.New("last name is required")
+	} else if email == "" {
+		err = errors.New("email is required")
+	} else if !utils.ValidateEmail(email) {
+		err = errors.New("invalid email")
 	}
+
+	return User{
+		id: id,
+		firstName: firstName,
+		lastName: lastName,
+		email: email,
+	}, err
+}
+
+func processUser(user User, importType string) {
+    // Implement user processing logic
+
+	// Validate user data - firstName, lastName, email
+	fmt.Printf("Processing user: %s %s %s %s\n", user.id, user.firstName, user.lastName, user.email)
+
+	// Create user in KC
+
+	// Create user in Dynamo
+
+	// Based on type of import, call specific functions
+}
+
+func shouldEmitEvent(user User) bool {
+    // Logic to decide if an SSE event should be emitted
+    return true
+}
+
+func emitSSE(eventEmitter *utils.EventEmitter, data utils.Event) {
+    // Implement SSE event emission, consider thread-safety
+	eventEmitter.Broadcast(data)
 }
