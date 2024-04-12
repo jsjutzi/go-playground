@@ -1,6 +1,6 @@
 package config
 
-// All dummy code, just to prove viability
+// All dummy code, just to prove viability of sharing single client instances
 type SharedClients struct {
 	DynamoDbclient *DynamoDBClient
 	OpensearchClient *OpensearchClient
@@ -23,3 +23,5 @@ type S3Client struct {
 type KcAdminClient struct {
 	url string
 }
+
+// Define funcs to create clients using env vars here 

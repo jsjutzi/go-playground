@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"du-service/config"
 	"du-service/health"
 	"du-service/importers"
 	"du-service/utils"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -33,17 +37,39 @@ func main() {
         WriteTimeout: 15 * time.Second,
     }
 
-	go func() {
-		log.Println("Starting SSE server on port 8080")
-        if err := sseServer.ListenAndServe(); err != nil {
-            log.Fatal("SSE Server failed:", err)
+    go func() {
+        log.Println("Starting SSE server on port 8080")
+        if err := sseServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("SSE Server failed: %v", err)
         }
-	}()
+    }()
 
-	log.Println("Starting regular server on port 8081")
-    if err := regularServer.ListenAndServe(); err != nil {
-        log.Fatal("Regular Server failed:", err)
+    go func() {
+        log.Println("Starting regular server on port 8081")
+        if err := regularServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+            log.Fatalf("Regular Server failed: %v", err)
+        }
+    }()
+
+	// Handle graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down servers...")
+
+    // Timeout context for shutdown
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+
+    if err := sseServer.Shutdown(ctx); err != nil {
+        log.Fatalf("Failed to shutdown SSE server: %v", err)
     }
+
+    if err := regularServer.Shutdown(ctx); err != nil {
+        log.Fatalf("Failed to shutdown regular server: %v", err)
+    }
+
 }
 
 func setupAPI() (*mux.Router, error) {
