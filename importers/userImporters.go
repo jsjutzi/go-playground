@@ -1,6 +1,7 @@
 package importers
 
 import (
+	"du-service/config"
 	"du-service/utils"
 	"encoding/csv"
 	"errors"
@@ -24,7 +25,7 @@ type User struct {
 // 	errorMessage string
 // }
 
-func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http.HandlerFunc {
+func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, sharedClients *config.SharedClients) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
 		// Establish SSE connection via headers
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -48,7 +49,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
         }()
 
 
-		importErrors := make([]ImportError, 0)
+		// importErrors := make([]ImportError, 0)
 		
 		csvFilePath := "./importers/benchmark.csv"
 		importType := "mp"
@@ -124,7 +125,6 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
 
 		eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed"})
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("All users processed"))
     }
 }
 
