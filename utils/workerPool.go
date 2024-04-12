@@ -2,7 +2,7 @@ package utils
 
 // Task defninition
 type Task struct {
-	Func func() interface{}
+	Func func() Event
 	Result chan interface{}
 }
 
