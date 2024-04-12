@@ -24,7 +24,7 @@ func setupAPI() {
 	go eventEmitter.Start()
 
 	// Define worker pool - 100 workers for demo purposes
-	workerPool := utils.NewWorkerPool(100)
+	workerPool := utils.NewWorkerPool(1000)
 
 	// Define routes
 

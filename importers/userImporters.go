@@ -2,14 +2,12 @@ package importers
 
 import (
 	"du-service/utils"
-	"fmt"
-	"net/http"
-	"strings"
-
-	// "time"
 	"encoding/csv"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -50,7 +48,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
         }()
 
 
-		// importErrors := make([]ImportError, 0)
+		importErrors := make([]ImportError, 0)
 		
 		csvFilePath := "./importers/benchmark.csv"
 		importType := "mp"
@@ -92,6 +90,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
 			}
 
 			wg.Add(1) // Increment wait group counter for each goroutine
+
 			task := utils.Task{
 				Func: func() utils.Event {
 					defer wg.Done()
@@ -120,6 +119,9 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
 		}
 
 		wg.Wait() // Ensure all goroutines complete before handler exits
+
+		// Build error report CSV
+
 		eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed"})
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("All users processed"))
