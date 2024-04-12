@@ -3,8 +3,6 @@ package importers
 import (
 	"du-service/utils"
 	"fmt"
-
-	// "fmt"
 	"net/http"
 	"strings"
 
@@ -22,17 +20,11 @@ type User struct {
 	email string
 }
 
-type ImportError struct {
-	email string
-	errorType string
-	errorMessage string
-}
-
-type UserValidationResult struct {
-	User User
-	Valid bool
-	Error error
-}
+// type ImportError struct {
+// 	email string
+// 	errorType string
+// 	errorMessage string
+// }
 
 func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
@@ -94,12 +86,12 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
 			if err != nil {
 				if err == csv.ErrFieldCount {
 					// Handle expected errors such as wrong field count
-					eventEmitter.Broadcast(utils.Event{Name: "Error", Data: "Invalid CSV format"})
+					emitSSE(eventEmitter, utils.Event{Name: "Error", Data: "Invalid CSV format"})
 				}
 				break // Break on any error (EOF is also an error)
 			}
 
-			wg.Add(1)
+			wg.Add(1) // Increment wait group counter for each goroutine
 			task := utils.Task{
 				Func: func() utils.Event {
 					defer wg.Done()
@@ -116,17 +108,18 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
 			}
 
 			go func(t utils.Task) {
-				wp.Submit(t)
+				wp.Submit(t) // Submit task to worker pool
 				// Handling results
 				result := <-t.Result
 				event, ok := result.(utils.Event)
+
 				if ok {
-					eventEmitter.Broadcast(event)
+					emitSSE(eventEmitter, event)
 				}
 			}(task)
 		}
 
-		wg.Wait() // Ensure all goroutines complete
+		wg.Wait() // Ensure all goroutines complete before handler exits
 		eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed"})
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("All users processed"))
@@ -176,6 +169,7 @@ func processUser(user User, importType string) utils.Event{
 	return utils.Event{Name: "UserProcessed", Data: user.id} 
 }
 
+// TODO: Figure out how to check progress and emit events condtionally
 func shouldEmitEvent(user User) bool {
     // Logic to decide if an SSE event should be emitted
     return true
