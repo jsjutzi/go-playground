@@ -23,33 +23,33 @@ func main() {
 		log.Fatalf("Failed to setup API: %v", err)
 	}
 
-    sseServer := &http.Server{
-        Addr:         ":8080",
-        Handler:      r,
-        ReadTimeout:  1 * time.Hour,   // Long read timeout to keep connection open
-        WriteTimeout: 0,               // No write timeout for SSE
-    }
+	sseServer := &http.Server{
+		Addr:         ":8080",
+		Handler:      r,
+		ReadTimeout:  1 * time.Hour, // Long read timeout to keep connection open
+		WriteTimeout: 0,             // No write timeout for SSE
+	}
 
-    regularServer := &http.Server{
-        Addr:         ":8081",
-        Handler:      r,
-        ReadTimeout:  15 * time.Second,
-        WriteTimeout: 15 * time.Second,
-    }
+	regularServer := &http.Server{
+		Addr:         ":8081",
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+	}
 
-    go func() {
-        log.Println("Starting SSE server on port 8080")
-        if err := sseServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("SSE Server failed: %v", err)
-        }
-    }()
+	go func() {
+		log.Println("Starting SSE server on port 8080")
+		if err := sseServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("SSE Server failed: %v", err)
+		}
+	}()
 
-    go func() {
-        log.Println("Starting regular server on port 8081")
-        if err := regularServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("Regular Server failed: %v", err)
-        }
-    }()
+	go func() {
+		log.Println("Starting regular server on port 8081")
+		if err := regularServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Regular Server failed: %v", err)
+		}
+	}()
 
 	// Handle graceful shutdown
 	quit := make(chan os.Signal, 1)
@@ -58,17 +58,17 @@ func main() {
 
 	log.Println("Shutting down servers...")
 
-    // Timeout context for shutdown
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
+	// Timeout context for shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-    if err := sseServer.Shutdown(ctx); err != nil {
-        log.Fatalf("Failed to shutdown SSE server: %v", err)
-    }
+	if err := sseServer.Shutdown(ctx); err != nil {
+		log.Fatalf("Failed to shutdown SSE server: %v", err)
+	}
 
-    if err := regularServer.Shutdown(ctx); err != nil {
-        log.Fatalf("Failed to shutdown regular server: %v", err)
-    }
+	if err := regularServer.Shutdown(ctx); err != nil {
+		log.Fatalf("Failed to shutdown regular server: %v", err)
+	}
 
 }
 
@@ -80,10 +80,10 @@ func setupAPI() (*mux.Router, error) {
 	kcAdminClient := config.KcAdminClient{}
 
 	sharedClients := &config.SharedClients{
-		DynamoDbclient: &dynamoDbClient,
+		DynamoDbclient:   &dynamoDbClient,
 		OpensearchClient: &opensearchClient,
-		S3Client: &s3Client,
-		KcAdminClient: &kcAdminClient,
+		S3Client:         &s3Client,
+		KcAdminClient:    &kcAdminClient,
 	}
 
 	// Create new event emitter
@@ -93,7 +93,7 @@ func setupAPI() (*mux.Router, error) {
 	// Define worker pool - 100 workers for demo purposes
 	workerPool := utils.NewWorkerPool(100)
 
-	// Define routes
+	// Define routes - only health check and import endpoints for now
 	r := mux.NewRouter()
 
 	// Health check endpoint
@@ -112,21 +112,21 @@ func setupAPI() (*mux.Router, error) {
 }
 
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
-    status := checkApplicationHealth()
-    if !status {
-        w.WriteHeader(http.StatusServiceUnavailable)
-    }
-
-    response := map[string]string{"status": "healthy"}
-    
+	status := checkApplicationHealth()
 	if !status {
-        response["status"] = "unhealthy"
-    }
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
 
-    json.NewEncoder(w).Encode(response)
+	response := map[string]string{"status": "healthy"}
+
+	if !status {
+		response["status"] = "unhealthy"
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 func checkApplicationHealth() bool {
-    // Implement actual checks here, e.g., database ping, etc.
-    return true // return false if any check fails
+	// Implement actual checks here, e.g., database ping, etc.
+	return true // return false if any check fails
 }
