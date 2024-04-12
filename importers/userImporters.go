@@ -124,7 +124,6 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 		// Build error report CSV
 
 		eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed"})
-		w.WriteHeader(http.StatusOK)
     }
 }
 

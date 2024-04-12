@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"du-service/config"
-	"du-service/health"
 	"du-service/importers"
 	"du-service/utils"
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -97,7 +97,7 @@ func setupAPI() (*mux.Router, error) {
 	r := mux.NewRouter()
 
 	// Health check endpoint
-	r.HandleFunc("/health", health.HealthCheckHandler).Methods("GET")
+	r.HandleFunc("/health", healthCheckHandler).Methods("GET")
 
 	// Bulk import endpoint
 	r.HandleFunc("/import-users", importers.ImportsHandler(eventEmitter, workerPool, sharedClients)).Methods("GET")
@@ -109,4 +109,24 @@ func setupAPI() (*mux.Router, error) {
 	// http.HandleFunc("/remove-users", importers.ImportsHandler(eventEmitter, workerPool))
 
 	return r, nil
+}
+
+func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+    status := checkApplicationHealth()
+    if !status {
+        w.WriteHeader(http.StatusServiceUnavailable)
+    }
+
+    response := map[string]string{"status": "healthy"}
+    
+	if !status {
+        response["status"] = "unhealthy"
+    }
+
+    json.NewEncoder(w).Encode(response)
+}
+
+func checkApplicationHealth() bool {
+    // Implement actual checks here, e.g., database ping, etc.
+    return true // return false if any check fails
 }
