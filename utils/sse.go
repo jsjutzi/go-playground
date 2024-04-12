@@ -62,6 +62,7 @@ func (emitter *EventEmitter) Broadcast(event Event) {
 
 
 // Utility function to emit Server-Sent Events to subscribers
+// TODO: Implement wrapper so handlers don't have to implement this themselves?
 func EventHandler(emitter *EventEmitter) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         // Set headers for SSE

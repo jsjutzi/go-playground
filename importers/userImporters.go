@@ -2,17 +2,12 @@ package importers
 
 import (
 	"du-service/utils"
-	"fmt"
-
-	// "fmt"
-	"net/http"
-	"strings"
-
-	// "time"
 	"encoding/csv"
 	"errors"
-	"io"
+	"fmt"
+	"net/http"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -23,34 +18,35 @@ type User struct {
 	email string
 }
 
-type ImportError struct {
-	email string
-	errorType string
-	errorMessage string
-}
+// type ImportError struct {
+// 	email string
+// 	errorType string
+// 	errorMessage string
+// }
 
 func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
-		// Establish SSE configurations
+		// Establish SSE connection via headers
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
+		// Create a new subscription to the event emitter
 		subscription := eventEmitter.Subscribe()
 		defer eventEmitter.Unsubscribe(subscription)
 
-		//  Listen for events to publish to the client
-		go func() {
-			for event := range subscription {
-				// Format the SSE event
-				message := "event: " + event.Name + "\n"
-				message += "data: " + event.Data + "\n\n"
+        // Goroutine for sending SSE messages to the client
+        go func() {
+            for event := range subscription {
+                message := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Name, event.Data)
+                if _, err := w.Write([]byte(message)); err != nil {
+                    // Handle error - break if client disconnects
+                    break
+                }
+                w.(http.Flusher).Flush()
+            }
+        }()
 
-				// Write the message to the client
-				w.Write([]byte(message))
-				w.(http.Flusher).Flush()
-			}
-		}()
 
 		importErrors := make([]ImportError, 0)
 		
@@ -79,83 +75,56 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool) http
 
         defer file.Close()
 
-        var wg sync.WaitGroup
         csvReader := csv.NewReader(file)
+        var wg sync.WaitGroup
 
-		// Define channel to receive results from worker pool
-		resultChan := make(chan interface{})
-
-        for {
-            line, err := csvReader.Read()
-
-            if err == io.EOF {
-                break // End of file
-            }
-
-            if err != nil {
-                // Handle error: Reading failure
-                break
-            }
-
-			wg.Add(1)
-
-			// Validate user has correct and valid inputs
-            user, err := validateUser(line)
-			// Increment the wait group counter
+		// Reading and processing the CSV
+		for {
+			line, err := csvReader.Read()
 			if err != nil {
-				// Handle error: Invalid user
-				importError := ImportError{
-					email: user.email,
-					errorType: "Invalid User",
-					errorMessage: err.Error(),
+				if err == csv.ErrFieldCount {
+					// Handle expected errors such as wrong field count
+					emitSSE(eventEmitter, utils.Event{Name: "Error", Data: "Invalid CSV format"})
 				}
-
-				importErrors = append(importErrors, importError)
-				wg.Done()
-
-				continue
-			} else {
-				task := utils.Task{
-					Func: func() interface{} {
-						// Decrement the wait group counter when the task is done
-						defer wg.Done()
-		
-						processUser(user, importType)
-		
-						// After processing, if condition met, emit SSE
-						if shouldEmitEvent(user) {
-							emitSSE(eventEmitter, utils.Event{
-								Name: "Progress Update",
-								Data: "50%",
-							})
-						}
-
-						return nil
-					},
-					Result: resultChan,
-				}
-				// Submit the user processing task to the worker pool
-				wp.Submit(task)
-
-				result := <-resultChan
-				fmt.Println(result)
+				break // Break on any error (EOF is also an error)
 			}
-        }
 
-        // Wait for all processing to complete
-        wg.Wait()
+			wg.Add(1) // Increment wait group counter for each goroutine
 
-        // After all users are processed, emit a final SSE message
-        emitSSE(eventEmitter, utils.Event{
-			Name: "importComplete",
-			Data: "All users processed",
-		})
+			task := utils.Task{
+				Func: func() utils.Event {
+					defer wg.Done()
+					user, validateErr := validateUser(line)
+					
+					if validateErr != nil {
+						return utils.Event{Name: "ValidationError", Data: validateErr.Error()}
+					}
 
-		// Build downloadable report and upload to S3
+					// ProcessUser returns an Event
+					return processUser(user, importType)
+				},
+				Result: make(chan interface{}, 1), // Buffered channel to prevent blocking
+			}
 
-        // Response to client that the process is finished
-        w.WriteHeader(http.StatusOK)
-        w.Write([]byte("All users processed"))
+			go func(t utils.Task) {
+				wp.Submit(t) // Submit task to worker pool
+				// Handling results
+				result := <-t.Result
+				event, ok := result.(utils.Event)
+
+				if ok {
+					emitSSE(eventEmitter, event)
+				}
+			}(task)
+		}
+
+		wg.Wait() // Ensure all goroutines complete before handler exits
+
+		// Build error report CSV
+
+		eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed"})
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("All users processed"))
     }
 }
 
@@ -188,7 +157,7 @@ func validateUser(line []string) (User, error) {
 	}, err
 }
 
-func processUser(user User, importType string) {
+func processUser(user User, importType string) utils.Event{
     // Implement user processing logic
 
 	// Validate user data - firstName, lastName, email
@@ -199,8 +168,10 @@ func processUser(user User, importType string) {
 	// Create user in Dynamo
 
 	// Based on type of import, call specific functions
+	return utils.Event{Name: "UserProcessed", Data: user.id} 
 }
 
+// TODO: Figure out how to check progress and emit events condtionally
 func shouldEmitEvent(user User) bool {
     // Logic to decide if an SSE event should be emitted
     return true
