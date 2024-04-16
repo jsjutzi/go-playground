@@ -69,7 +69,6 @@ func main() {
 	if err := regularServer.Shutdown(ctx); err != nil {
 		log.Fatalf("Failed to shutdown regular server: %v", err)
 	}
-
 }
 
 func setupAPI() (*mux.Router, error) {

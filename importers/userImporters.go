@@ -1,6 +1,7 @@
 package importers
 
 import (
+	"context"
 	"du-service/config"
 	"du-service/utils"
 	"encoding/csv"
@@ -32,19 +33,26 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
+		ctx := r.Context() // Get request's context
+
 		// Create a new subscription to the event emitter
 		subscription := eventEmitter.Subscribe()
 		defer eventEmitter.Unsubscribe(subscription)
 
         // Goroutine for sending SSE messages to the client
         go func() {
-            for event := range subscription {
-                message := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Name, event.Data)
-                if _, err := w.Write([]byte(message)); err != nil {
-                    // Handle error - break if client disconnects
-                    break
+            for {
+                select {
+                case event := <-subscription:
+                    message := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Name, event.Data)
+                    _, err := w.Write([]byte(message))
+                    if err != nil {
+                        return // Stop if there's an error sending SSE
+                    }
+                    w.(http.Flusher).Flush()
+                case <-ctx.Done():
+                    return // Handle cancellation
                 }
-                w.(http.Flusher).Flush()
             }
         }()
 
@@ -85,17 +93,22 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 			if err != nil {
 				if err == csv.ErrFieldCount {
 					// Handle expected errors such as wrong field count
-					emitSSE(eventEmitter, utils.Event{Name: "Error", Data: "Invalid CSV format"})
+					emitSSE(eventEmitter, utils.Event{Name: "File Error", Error: errors.New("invalid CSV format")})
 				}
 				break // Break on any error (EOF is also an error)
 			}
 
+			// This service does not modify the existing CSV, but it's best practice to create a copy of the line
+			lineCopy := make([]string, len(line))
+            copy(lineCopy, line) // Create a copy of line for the goroutine
+
 			wg.Add(1) // Increment wait group counter for each goroutine
 
 			task := utils.Task{
-				Func: func() utils.Event {
+				Ctx: ctx,
+				Func: func(ctx context.Context) utils.Event {
 					defer wg.Done()
-					user, validateErr := validateUser(line)
+					user, validateErr := validateUser(lineCopy)
 					
 					if validateErr != nil {
 						return utils.Event{Name: "ValidationError", Data: validateErr.Error()}
@@ -110,12 +123,16 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 			go func(t utils.Task) {
 				wp.Submit(t) // Submit task to worker pool
 				// Handling results
-				result := <-t.Result
-				event, ok := result.(utils.Event)
+				select {
+                case result := <-t.Result:
+					event, ok := result.(utils.Event)
 
-				if ok {
-					emitSSE(eventEmitter, event)
-				}
+					if ok {
+						emitSSE(eventEmitter, event)
+					}
+                case <-r.Context().Done():
+                    return
+                }
 			}(task)
 		}
 

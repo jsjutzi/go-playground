@@ -7,6 +7,7 @@ import (
 type Event struct {
 	Name string
 	Data string
+	Error error
 }
 
 type EventEmitter struct {

@@ -1,8 +1,11 @@
 package utils
 
+import "context"
+
 // Task defninition
 type Task struct {
-	Func func() Event
+	Ctx context.Context
+	Func func(context.Context) Event
 	Result chan interface{}
 }
 
@@ -34,8 +37,14 @@ func (wp *WorkerPool) StartWorkers() {
 
 func (wp *WorkerPool) worker() {
     for task := range wp.TaskQueue {
-		result := task.Func()
-		task.Result <- result
+		// Check if context is already done before starting task
+		select {
+			case <-task.Ctx.Done():
+				task.Result <- Event{Error: task.Ctx.Err()}
+			default:
+				result := task.Func(task.Ctx)
+				task.Result <- result
+		}
 	}
 }
 
