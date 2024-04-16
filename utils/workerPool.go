@@ -40,7 +40,7 @@ func (wp *WorkerPool) worker() {
 		// Check if context is already done before starting task
 		select {
 			case <-task.Ctx.Done():
-				task.Result <- Event{Error: task.Ctx.Err()}
+				task.Result <- Event{Name: "Error", Data: "N/A", Error: task.Ctx.Err()}
 			default:
 				result := task.Func(task.Ctx)
 				task.Result <- result

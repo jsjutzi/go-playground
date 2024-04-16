@@ -7,6 +7,7 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -41,16 +42,39 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 
         // Goroutine for sending SSE messages to the client
         go func() {
+			// Self recovery from panic
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Recovered from panic in SSE send loop: %v", r)
+				}
+			}()
+
             for {
                 select {
                 case event := <-subscription:
-                    message := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Name, event.Data)
-                    _, err := w.Write([]byte(message))
-                    if err != nil {
-                        return // Stop if there's an error sending SSE
-                    }
-                    w.(http.Flusher).Flush()
+					if ctx.Err() != nil {
+						log.Printf("Event: %v",event)
+						log.Println("Context error before writing SSE:", ctx.Err())
+						return // Exit if context has error
+					}
+
+                    message := fmt.Sprintf("event: %s\ndata: %s\nerror: %s\n", event.Name, event.Data, event.Error)
+            
+					if _, err := w.Write([]byte(message)); err != nil {
+						fmt.Println("Error writing SSE message:", err)
+						return // Stop if there's an error sending SSE
+					}
+		
+					flusher, ok := w.(http.Flusher)
+
+					if !ok {
+						log.Println("Error: ResponseWriter does not implement Flusher")
+					}
+		
+					flusher.Flush() // Attempt to flush the buffer to the client
+
                 case <-ctx.Done():
+					fmt.Println("Context done line 54")
                     return // Handle cancellation
                 }
             }
@@ -86,6 +110,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 
         csvReader := csv.NewReader(file)
         var wg sync.WaitGroup
+		var sseWg sync.WaitGroup
 
 		// Reading and processing the CSV
 		for {
@@ -103,7 +128,9 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
             copy(lineCopy, line) // Create a copy of line for the goroutine
 
 			wg.Add(1) // Increment wait group counter for each goroutine
+			sseWg.Add(1) // Increment wait group counter for sse
 
+			// Create a new task for each line in the CSV that has contxt, a function to execute, and a result channel
 			task := utils.Task{
 				Ctx: ctx,
 				Func: func(ctx context.Context) utils.Event {
@@ -111,7 +138,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 					user, validateErr := validateUser(lineCopy)
 					
 					if validateErr != nil {
-						return utils.Event{Name: "ValidationError", Data: validateErr.Error()}
+						return utils.Event{Name: "ValidationError", Error: validateErr}
 					}
 
 					// ProcessUser returns an Event
@@ -120,8 +147,9 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 				Result: make(chan interface{}, 1), // Buffered channel to prevent blocking
 			}
 
+			// Submit task to the worker pool
 			go func(t utils.Task) {
-				wp.Submit(t) // Submit task to worker pool
+				wp.Submit(t)
 				// Handling results
 				select {
                 case result := <-t.Result:
@@ -129,18 +157,30 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 
 					if ok {
 						emitSSE(eventEmitter, event)
+						sseWg.Done()
+					} else {
+						fmt.Println("Unexpected result")
+						// Handle unexpected result
 					}
                 case <-r.Context().Done():
+					fmt.Println("Context done line 134")
+					sseWg.Done()
                     return
                 }
 			}(task)
 		}
 
 		wg.Wait() // Ensure all goroutines complete before handler exits
+		sseWg.Wait() // Ensure all SSE events are emitted before handler exits
 
 		// Build error report CSV
+		
+		// TODO: This creates a bug where context is cancelled before event is published
+		// Refactor event emitter to support 'streams' of events, and implement a way to "close" a given stream after this event is published
+		// eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed"})
 
-		eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed"})
+		log.Println("All wait groups finished and handler is exiting...")
+
     }
 }
 
