@@ -69,11 +69,12 @@ func main() {
 	if err := regularServer.Shutdown(ctx); err != nil {
 		log.Fatalf("Failed to shutdown regular server: %v", err)
 	}
-
 }
 
 func setupAPI() (*mux.Router, error) {
 	// Define shared clients here - these will be passed to the handlers
+	// TODO: Move this to the handlers via a utility function, so each import handler
+	// can create its own clients, then destroy them once import is complete?
 	dynamoDbClient := config.DynamoDBClient{}
 	opensearchClient := config.OpensearchClient{}
 	s3Client := config.S3Client{}
