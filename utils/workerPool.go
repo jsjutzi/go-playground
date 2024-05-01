@@ -1,6 +1,8 @@
 package utils
 
-import "context"
+import (
+	"context"
+)
 
 // Task defninition
 type Task struct {

@@ -39,7 +39,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 		// Create unique ID for this event stream
 		streamId := uuid.New().String()
 
-		ctx := r.Context() // Get request's context
+		ctx := r.Context() // Get request's original context
 
 		// Create a new subscription to the event emitter
 		subscription := eventEmitter.Subscribe(streamId)
@@ -79,7 +79,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 					flusher.Flush() // Attempt to flush the buffer to the client
 
                 case <-ctx.Done():
-					fmt.Println("Context done line 54")
+					fmt.Println("Context done line 54") // This line is called many times after the handler exits, since context is cancelled
                     return // Handle cancellation
                 }
             }
@@ -118,6 +118,15 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 		var sseWg sync.WaitGroup
 
 		// Reading and processing the CSV
+		// Read the first line to skip the header
+		_, err = csvReader.Read()
+
+		if err != nil {
+			log.Fatalf("Failed to read the header line of the CSV file: %v", err)
+			return
+		}
+
+		// Enter loop to parse each row
 		for {
 			line, err := csvReader.Read()
 			if err != nil {
@@ -159,6 +168,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 				select {
                 case result := <-t.Result:
 					event, ok := result.(utils.Event)
+					log.Println("Event Log: ", event)
 
 					if ok {
 						emitSSE(eventEmitter, event)
@@ -167,7 +177,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 						fmt.Println("Unexpected result")
 						// Handle unexpected result
 					}
-                case <-r.Context().Done():
+                case <-ctx.Done():
 					fmt.Println("Context done line 134")
 					sseWg.Done()
                     return
@@ -180,9 +190,19 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 
 		// Build error report CSV
 
-		// TODO: This creates a bug where context is cancelled before event is published
-		// Refactor event emitter to support 'streams' of events, and implement a way to "close" a given stream after this event is published
-		eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed", StreamId: streamId})
+		// Leverage wait group to guarantee final event is broadcast before handler exists and context is canceled
+		sseWg.Add(1)
+
+		go func() {
+			defer sseWg.Done()
+			if ctx.Err() == nil {
+				emitSSE(eventEmitter, utils.Event{Name: "importComplete", Data: "All users processed", StreamId: streamId})
+			} else {
+				log.Println("Context cancelled before sending final completion event")
+			}
+		}()
+
+		sseWg.Wait() // Ensure final event is emitted before handler exits
 
 		// For demo purposes
 		log.Println("All wait groups finished and handler is exiting...")
@@ -238,6 +258,7 @@ func shouldEmitEvent() bool {
 }
 
 func emitSSE(eventEmitter *utils.EventEmitter, data utils.Event) {
+	// TODO: Implement robust error handling for this function
     // Implement SSE event emission, consider thread-safety
 	eventEmitter.Broadcast(data)
 }
