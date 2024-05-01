@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 type User struct {
@@ -34,11 +36,14 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 
+		// Create unique ID for this event stream
+		streamId := uuid.New().String()
+
 		ctx := r.Context() // Get request's context
 
 		// Create a new subscription to the event emitter
-		subscription := eventEmitter.Subscribe()
-		defer eventEmitter.Unsubscribe(subscription)
+		subscription := eventEmitter.Subscribe(streamId)
+		defer eventEmitter.Unsubscribe(streamId, subscription)
 
         // Goroutine for sending SSE messages to the client
         go func() {
@@ -58,10 +63,10 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 						return // Exit if context has error
 					}
 
-                    message := fmt.Sprintf("event: %s\ndata: %s\nerror: %s\n", event.Name, event.Data, event.Error)
+                    message := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Name, event.Data)
             
 					if _, err := w.Write([]byte(message)); err != nil {
-						fmt.Println("Error writing SSE message:", err)
+						log.Println("Error writing SSE message:", err)
 						return // Stop if there's an error sending SSE
 					}
 		
@@ -118,7 +123,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 			if err != nil {
 				if err == csv.ErrFieldCount {
 					// Handle expected errors such as wrong field count
-					emitSSE(eventEmitter, utils.Event{Name: "File Error", Error: errors.New("invalid CSV format")})
+					emitSSE(eventEmitter, utils.Event{Name: "File Error", Error: errors.New("invalid CSV format"), StreamId: streamId})
 				}
 				break // Break on any error (EOF is also an error)
 			}
@@ -138,11 +143,11 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 					user, validateErr := validateUser(lineCopy)
 					
 					if validateErr != nil {
-						return utils.Event{Name: "ValidationError", Error: validateErr}
+						return utils.Event{Name: "ValidationError", Error: validateErr, StreamId: streamId}
 					}
 
 					// ProcessUser returns an Event
-					return processUser(user, importType)
+					return processUser(user, importType, streamId)
 				},
 				Result: make(chan interface{}, 1), // Buffered channel to prevent blocking
 			}
@@ -174,19 +179,18 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 		sseWg.Wait() // Ensure all SSE events are emitted before handler exits
 
 		// Build error report CSV
-		
+
 		// TODO: This creates a bug where context is cancelled before event is published
 		// Refactor event emitter to support 'streams' of events, and implement a way to "close" a given stream after this event is published
-		// eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed"})
+		eventEmitter.Broadcast(utils.Event{Name: "importComplete", Data: "All users processed", StreamId: streamId})
 
+		// For demo purposes
 		log.Println("All wait groups finished and handler is exiting...")
 
     }
 }
 
 func validateUser(line []string) (User, error) {
-	// Implement user validation logic
-
 	// Validate user data - firstName, lastName, email
 	id := line[0]
 	firstName := strings.TrimSpace(line[1])
@@ -213,7 +217,7 @@ func validateUser(line []string) (User, error) {
 	}, err
 }
 
-func processUser(user User, importType string) utils.Event{
+func processUser(user User, importType string, streamId string) utils.Event{
     // Implement user processing logic
 
 	// Validate user data - firstName, lastName, email
@@ -224,11 +228,11 @@ func processUser(user User, importType string) utils.Event{
 	// Create user in Dynamo
 
 	// Based on type of import, call specific functions
-	return utils.Event{Name: "UserProcessed", Data: user.id} 
+	return utils.Event{Name: "UserProcessed", Data: user.id, StreamId: streamId} 
 }
 
 // TODO: Figure out how to check progress and emit events condtionally
-func shouldEmitEvent(user User) bool {
+func shouldEmitEvent() bool {
     // Logic to decide if an SSE event should be emitted
     return true
 }

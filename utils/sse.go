@@ -8,21 +8,28 @@ type Event struct {
 	Name string
 	Data string
 	Error error
+	StreamId string
 }
 
+
 type EventEmitter struct {
-	subscriptions map[chan Event]struct{} // map of subscribers to events
+	streams map[string]map[chan Event]struct{}
 	mu sync.RWMutex // Protect map from concurrent access
-	addChan chan chan Event // Channel through which channels can be passed, and the channels passed can pass events
-	removeChan chan chan Event
+	addChan chan subscription // Channel through which subscriptions can be passed, and the channels passed can pass events
+	removeChan chan subscription
 	broadcastChan chan Event
+}
+
+type subscription struct {
+	streamId string
+	ch chan Event
 }
 
 func NewEventEmitter() *EventEmitter {
 	emitter := &EventEmitter{
-		subscriptions: make(map[chan Event]struct{}),
-		addChan: make(chan chan Event),
-		removeChan: make(chan chan Event),
+		streams: make(map[string]map[chan Event]struct{}),
+		addChan: make(chan subscription),
+		removeChan: make(chan subscription),
 		broadcastChan: make(chan Event),
 	}
 
@@ -32,65 +39,49 @@ func NewEventEmitter() *EventEmitter {
 func (emitter *EventEmitter) Start() {
 	for {
 		select {
-		case subscription := <-emitter.addChan:
+		case sub := <-emitter.addChan:
 			emitter.mu.Lock()
-			emitter.subscriptions[subscription] = struct{}{}
+			if _, ok := emitter.streams[sub.streamId]; !ok {
+				emitter.streams[sub.streamId] = make(map[chan Event]struct{})
+			}
+			emitter.streams[sub.streamId][sub.ch] = struct{}{}
 			emitter.mu.Unlock()
 
-		case subscription := <-emitter.removeChan:
+		case sub := <-emitter.removeChan:
 			emitter.mu.Lock()
-            delete(emitter.subscriptions, subscription)
-            close(subscription)
+
+			if subs, ok := emitter.streams[sub.streamId]; ok {
+				delete(subs, sub.ch)
+				close(sub.ch)
+				if len(subs) == 0 {
+					delete(emitter.streams, sub.streamId)
+				}
+			}
+
 			emitter.mu.Unlock()
 			
         case event := <-emitter.broadcastChan:
 			emitter.mu.RLock()
-            for sub := range emitter.subscriptions {
-                sub <- event
-            }
+            if subs, ok := emitter.streams[event.StreamId]; ok {
+				for sub := range subs {
+					sub <- event
+				}
+			}
 			emitter.mu.RUnlock()
         }
 	}
 }
 
-func (emitter *EventEmitter) Subscribe() chan Event {
-    subscription := make(chan Event)
-    emitter.addChan <- subscription
-    return subscription
+func (emitter *EventEmitter) Subscribe(streamId string) chan Event {
+    ch := make(chan Event)
+    emitter.addChan <- subscription{streamId, ch}
+    return ch
 }
 
-func (emitter *EventEmitter) Unsubscribe(subscription chan Event) {
-    emitter.removeChan <- subscription
+func (emitter *EventEmitter) Unsubscribe(streamId string, ch chan Event) {
+    emitter.removeChan <- subscription{streamId, ch}
 }
 
 func (emitter *EventEmitter) Broadcast(event Event) {
     emitter.broadcastChan <- event
 }
-
-
-
-// Utility function to emit Server-Sent Events to subscribers
-// TODO: Implement wrapper so handlers don't have to implement this themselves?
-// func EventHandler(emitter *EventEmitter) http.HandlerFunc {
-//     return func(w http.ResponseWriter, r *http.Request) {
-//         // Set headers for SSE
-//         w.Header().Set("Content-Type", "text/event-stream")
-//         w.Header().Set("Cache-Control", "no-cache")
-//         w.Header().Set("Connection", "keep-alive")
-
-//         // Subscribe to events
-//         subscription := emitter.Subscribe()
-//         defer emitter.Unsubscribe(subscription)
-
-//         // Write SSE events to the client
-//         for event := range subscription {
-//             // Format the SSE event
-//             message := "event: " + event.Name + "\n"
-//             message += "data: " + event.Data + "\n\n"
-
-//             // Write the message to the client
-//             w.Write([]byte(message))
-//             w.(http.Flusher).Flush()
-//         }
-//     }
-// }
