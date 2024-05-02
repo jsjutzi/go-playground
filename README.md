@@ -2,7 +2,7 @@ This is an early POC for a concurrent web service that will handle large dataset
 
 ## Dev Setup (Requirements)
 
-- [Go] v1.22+ (https://go.dev/doc/install)
+- [Go](https://go.dev/doc/install)
 - [Golangci-lint](https://golangci-lint.run/welcome/install/#local-installation)
 - [Pre-commit](https://pre-commit.com/)
 
