@@ -5,31 +5,30 @@ import (
 )
 
 type Event struct {
-	Name string
-	Data string
-	Error error
+	Name     string
+	Data     string
+	Error    error
 	StreamId string
 }
 
-
 type EventEmitter struct {
-	streams map[string]map[chan Event]struct{}
-	mu sync.RWMutex // Protect map from concurrent access
-	addChan chan subscription // Channel through which subscriptions can be passed, and the channels passed can pass events
-	removeChan chan subscription
+	streams       map[string]map[chan Event]struct{}
+	mu            sync.RWMutex      // Protect map from concurrent access
+	addChan       chan subscription // Channel through which subscriptions can be passed, and the subscriptions passed can pass events
+	removeChan    chan subscription
 	broadcastChan chan Event
 }
 
 type subscription struct {
 	streamId string
-	ch chan Event
+	ch       chan Event
 }
 
 func NewEventEmitter() *EventEmitter {
 	emitter := &EventEmitter{
-		streams: make(map[string]map[chan Event]struct{}),
-		addChan: make(chan subscription),
-		removeChan: make(chan subscription),
+		streams:       make(map[string]map[chan Event]struct{}),
+		addChan:       make(chan subscription),
+		removeChan:    make(chan subscription),
 		broadcastChan: make(chan Event),
 	}
 
@@ -59,29 +58,29 @@ func (emitter *EventEmitter) Start() {
 			}
 
 			emitter.mu.Unlock()
-			
-        case event := <-emitter.broadcastChan:
+
+		case event := <-emitter.broadcastChan:
 			emitter.mu.RLock()
-            if subs, ok := emitter.streams[event.StreamId]; ok {
+			if subs, ok := emitter.streams[event.StreamId]; ok {
 				for sub := range subs {
 					sub <- event
 				}
 			}
 			emitter.mu.RUnlock()
-        }
+		}
 	}
 }
 
 func (emitter *EventEmitter) Subscribe(streamId string) chan Event {
-    ch := make(chan Event)
-    emitter.addChan <- subscription{streamId, ch}
-    return ch
+	ch := make(chan Event)
+	emitter.addChan <- subscription{streamId, ch}
+	return ch
 }
 
 func (emitter *EventEmitter) Unsubscribe(streamId string, ch chan Event) {
-    emitter.removeChan <- subscription{streamId, ch}
+	emitter.removeChan <- subscription{streamId, ch}
 }
 
 func (emitter *EventEmitter) Broadcast(event Event) {
-    emitter.broadcastChan <- event
+	emitter.broadcastChan <- event
 }
