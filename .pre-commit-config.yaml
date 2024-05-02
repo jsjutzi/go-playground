@@ -1,4 +1,14 @@
 repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0 # Use the ref you want to point at
+    hooks:
+      - id: pretty-format-json
+      - id: fix-byte-order-marker
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+
   - repo: https://github.com/golangci/golangci-lint
     rev: v1.57.2 # Use the latest golangci-lint version
     hooks:
@@ -10,4 +20,11 @@ repos:
         name: gofmt
         entry: gofmt -w
         language: system
+        types: [go]
+
+      - id: go-test-all
+        name: Run Go Tests
+        entry: ./run_tests.sh
+        language: script
+        pass_filenames: false
         types: [go]

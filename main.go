@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"du-service/config"
-	"du-service/importers"
-	"du-service/utils"
+	"du-import-service/config"
+	"du-import-service/importers"
+	"du-import-service/utils"
 	"encoding/json"
 	"log"
 	"net/http"

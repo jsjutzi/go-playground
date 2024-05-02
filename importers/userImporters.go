@@ -2,8 +2,8 @@ package importers
 
 import (
 	"context"
-	"du-service/config"
-	"du-service/utils"
+	"du-import-service/config"
+	"du-import-service/utils"
 	"encoding/csv"
 	"errors"
 	"fmt"
