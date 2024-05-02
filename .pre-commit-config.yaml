@@ -3,6 +3,7 @@ repos:
     rev: v1.57.2 # Use the latest golangci-lint version
     hooks:
       - id: golangci-lint
+
   - repo: local
     hooks:
       - id: gofmt
