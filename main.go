@@ -114,6 +114,7 @@ func setupAPI() (*mux.Router, error) {
 
 func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	status := checkApplicationHealth()
+
 	if !status {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}

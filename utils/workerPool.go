@@ -6,21 +6,21 @@ import (
 
 // Task defninition
 type Task struct {
-	Ctx context.Context
-	Func func(context.Context) Event
+	Ctx    context.Context
+	Func   func(context.Context) Event
 	Result chan interface{}
 }
 
 // Worker pool definition
 type WorkerPool struct {
 	workerCount int
-	TaskQueue chan Task
+	TaskQueue   chan Task
 }
 
 // Create a new worker pool
 func NewWorkerPool(workerCount int) *WorkerPool {
 	pool := &WorkerPool{
-		TaskQueue: make(chan Task),
+		TaskQueue:   make(chan Task),
 		workerCount: workerCount,
 	}
 
@@ -38,14 +38,14 @@ func (wp *WorkerPool) StartWorkers() {
 }
 
 func (wp *WorkerPool) worker() {
-    for task := range wp.TaskQueue {
+	for task := range wp.TaskQueue {
 		// Check if context is already done before starting task
 		select {
-			case <-task.Ctx.Done():
-				task.Result <- Event{Name: "Error", Data: "N/A", Error: task.Ctx.Err()}
-			default:
-				result := task.Func(task.Ctx)
-				task.Result <- result
+		case <-task.Ctx.Done():
+			task.Result <- Event{Name: "Error", Data: "N/A", Error: task.Ctx.Err()}
+		default:
+			result := task.Func(task.Ctx)
+			task.Result <- result
 		}
 	}
 }

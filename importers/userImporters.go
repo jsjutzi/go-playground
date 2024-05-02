@@ -17,10 +17,10 @@ import (
 )
 
 type User struct {
-	id string
+	id        string
 	firstName string
-	lastName string
-	email string
+	lastName  string
+	email     string
 }
 
 // type ImportError struct {
@@ -30,7 +30,7 @@ type User struct {
 // }
 
 func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, sharedClients *config.SharedClients) http.HandlerFunc {
-    return func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// Establish SSE connection via headers
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -45,8 +45,8 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 		subscription := eventEmitter.Subscribe(streamId)
 		defer eventEmitter.Unsubscribe(streamId, subscription)
 
-        // Goroutine for sending SSE messages to the client
-        go func() {
+		// Goroutine for sending SSE messages to the client
+		go func() {
 			// Self recovery from panic
 			defer func() {
 				if r := recover(); r != nil {
@@ -54,40 +54,39 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 				}
 			}()
 
-            for {
-                select {
-                case event := <-subscription:
+			for {
+				select {
+				case event := <-subscription:
 					if ctx.Err() != nil {
-						log.Printf("Event: %v",event)
+						log.Printf("Event: %v", event)
 						log.Println("Context error before writing SSE:", ctx.Err())
 						return // Exit if context has error
 					}
 
-                    message := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Name, event.Data)
-            
+					message := fmt.Sprintf("event: %s\ndata: %s\n\n", event.Name, event.Data)
+
 					if _, err := w.Write([]byte(message)); err != nil {
 						log.Println("Error writing SSE message:", err)
 						return // Stop if there's an error sending SSE
 					}
-		
+
 					flusher, ok := w.(http.Flusher)
 
 					if !ok {
 						log.Println("Error: ResponseWriter does not implement Flusher")
 					}
-		
+
 					flusher.Flush() // Attempt to flush the buffer to the client
 
-                case <-ctx.Done():
+				case <-ctx.Done():
 					fmt.Println("Context done line 54") // This line is called many times after the handler exits, since context is cancelled
-                    return // Handle cancellation
-                }
-            }
-        }()
-
+					return                              // Handle cancellation
+				}
+			}
+		}()
 
 		// importErrors := make([]ImportError, 0)
-		
+
 		csvFilePath := "./importers/benchmark.csv"
 		importType := "mp"
 		// csvFilePath := r.Header.Get("X-S3-Path")
@@ -100,21 +99,21 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 		// Access upload record from dynamo
 		// Update status to processing
 
-        file, err := os.Open(csvFilePath)
+		file, err := os.Open(csvFilePath)
 
 		// Handle error accessing the file
-        if err != nil {
+		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			w.Write([]byte("Error opening CSV file"))
 
 			// Update upload status to error
 			return
-        }
+		}
 
-        defer file.Close()
+		defer file.Close()
 
-        csvReader := csv.NewReader(file)
-        var wg sync.WaitGroup
+		csvReader := csv.NewReader(file)
+		var wg sync.WaitGroup
 		var sseWg sync.WaitGroup
 
 		// Reading and processing the CSV
@@ -139,9 +138,9 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 
 			// This service does not modify the existing CSV, but it's best practice to create a copy of the line
 			lineCopy := make([]string, len(line))
-            copy(lineCopy, line) // Create a copy of line for the goroutine
+			copy(lineCopy, line) // Create a copy of line for the goroutine
 
-			wg.Add(1) // Increment wait group counter for each goroutine
+			wg.Add(1)    // Increment wait group counter for each goroutine
 			sseWg.Add(1) // Increment wait group counter for sse
 
 			// Create a new task for each line in the CSV that has contxt, a function to execute, and a result channel
@@ -150,7 +149,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 				Func: func(ctx context.Context) utils.Event {
 					defer wg.Done()
 					user, validateErr := validateUser(lineCopy)
-					
+
 					if validateErr != nil {
 						return utils.Event{Name: "ValidationError", Error: validateErr, StreamId: streamId}
 					}
@@ -166,7 +165,7 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 				wp.Submit(t)
 				// Handling results
 				select {
-                case result := <-t.Result:
+				case result := <-t.Result:
 					event, ok := result.(utils.Event)
 					log.Println("Event Log: ", event)
 
@@ -177,15 +176,15 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 						fmt.Println("Unexpected result")
 						// Handle unexpected result
 					}
-                case <-ctx.Done():
+				case <-ctx.Done():
 					fmt.Println("Context done line 134")
 					sseWg.Done()
-                    return
-                }
+					return
+				}
 			}(task)
 		}
 
-		wg.Wait() // Ensure all goroutines complete before handler exits
+		wg.Wait()    // Ensure all goroutines complete before handler exits
 		sseWg.Wait() // Ensure all SSE events are emitted before handler exits
 
 		// Build error report CSV
@@ -207,14 +206,14 @@ func ImportsHandler(eventEmitter *utils.EventEmitter, wp *utils.WorkerPool, shar
 		// For demo purposes
 		log.Println("All wait groups finished and handler is exiting...")
 
-    }
+	}
 }
 
 func validateUser(line []string) (User, error) {
 	// Validate user data - firstName, lastName, email
 	id := line[0]
 	firstName := strings.TrimSpace(line[1])
-	lastName:= strings.TrimSpace(line[2])
+	lastName := strings.TrimSpace(line[2])
 	email := strings.TrimSpace(line[3])
 
 	var err error
@@ -230,15 +229,15 @@ func validateUser(line []string) (User, error) {
 	}
 
 	return User{
-		id: id,
+		id:        id,
 		firstName: firstName,
-		lastName: lastName,
-		email: email,
+		lastName:  lastName,
+		email:     email,
 	}, err
 }
 
-func processUser(user User, importType string, streamId string) utils.Event{
-    // Implement user processing logic
+func processUser(user User, importType string, streamId string) utils.Event {
+	// Implement user processing logic
 
 	// Validate user data - firstName, lastName, email
 	fmt.Printf("Processing user: %s %s %s %s\n", user.id, user.firstName, user.lastName, user.email)
@@ -248,17 +247,17 @@ func processUser(user User, importType string, streamId string) utils.Event{
 	// Create user in Dynamo
 
 	// Based on type of import, call specific functions
-	return utils.Event{Name: "UserProcessed", Data: user.id, StreamId: streamId} 
+	return utils.Event{Name: "UserProcessed", Data: user.id, StreamId: streamId}
 }
 
 // TODO: Figure out how to check progress and emit events condtionally
 func shouldEmitEvent() bool {
-    // Logic to decide if an SSE event should be emitted
-    return true
+	// Logic to decide if an SSE event should be emitted
+	return true
 }
 
 func emitSSE(eventEmitter *utils.EventEmitter, data utils.Event) {
 	// TODO: Implement robust error handling for this function
-    // Implement SSE event emission, consider thread-safety
+	// Implement SSE event emission, consider thread-safety
 	eventEmitter.Broadcast(data)
 }
