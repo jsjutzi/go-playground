@@ -16,7 +16,7 @@ test:
 	@go test ./...
 
 build:
-	@go build -o du-import-service .
+	@go build ./...
 
 clean:
 	@rm du-import-service
