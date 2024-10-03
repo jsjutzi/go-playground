@@ -6,7 +6,7 @@ COPY . .
 
 RUN go mod download
 
-RUN go build -o /go-import-service
+RUN go build ./...
 
 EXPOSE 8080
 
